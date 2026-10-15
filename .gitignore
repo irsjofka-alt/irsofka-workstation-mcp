@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+blender-outputs/
+.venv/
+build/
+dist/
+*.egg-info/

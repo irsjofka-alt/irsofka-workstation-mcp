@@ -1,0 +1,40 @@
+UPSTREAM — what this repository is derived from
+
+Nothing third-party. This server is a client of a socket protocol, and the protocol belongs to
+the workstation: the editor side is `IRSofkaStationCore`, the operator's own Unreal plugin,
+installed at
+  ~/Apps/LinuxUnrealEngine5.8.3/Engine/Plugins/Marketplace/IRSofkaStationCore/Source/
+
+Every statement this file makes about the framing was READ from that source on 2026-10-15 and then
+CONFIRMED by a live round trip against a running editor (roadmap item F11/STEP-0,
+`tools/ue_bridge_probe.py`):
+
+  IRSofkaDispatcher/Private/IRSofkaSocketServer.cpp
+    - binds 127.0.0.1:9877
+    - reads one request per connection, terminated by a newline
+    - answers one JSON object with a newline appended
+    - matches JsonObj->GetStringField("domain").ToLower() against registered handlers
+    - runs handlers synchronously on the GameThread via FIRSofkaTaskRunner::ExecuteSync
+  IRSofkaWorld/Private/IRSofkaWorldSubsystem.cpp
+    - {"status":"SUCCESS"|"FAILED","error":...}
+    - get_all_actors -> {status, count, actors:[{label,class,loc}]}
+    - spawn -> {actor_label, class, location}; get_transform -> {location, rotation, scale}
+    - set_transform -> {status} only
+
+No code from the plugin, from any other MCP server, or from any engine SDK is in this tree: the
+client here is stdlib Python that speaks the documented line protocol. A reading of a protocol to
+interoperate with it is not a derivation of the implementation, and this file says so plainly so
+nobody has to guess which side of that line the repository sits on.
+
+Two defects found in the editor side by measurement are handled HERE rather than by editing the
+plugin, because the plugin fix needs a module rebuild inside the operator's live session:
+  1. a bare class name makes LoadClass return null and the handler silently fall back to AActor,
+     which has no RootComponent, so transforms become no-ops while every call says SUCCESS;
+     this server resolves short names to /Script/Engine.* and refuses to send what it cannot
+     resolve.
+  2. set_transform replies with a status and nothing else; this server reads the transform back
+     and reports the landed values, `changed`, and `DEGRADED` when SUCCESS moved nothing.
+Both are recorded upstream as roadmap item F11/STEP-0b (quest 301, status HUMAN, decision 55).
+
+Licence of this repository: Business Source License 1.1 (see LICENSE), Licensor PT IRSofka Data
+Teknologi, Change License MIT after four years per version.
