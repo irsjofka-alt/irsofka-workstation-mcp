@@ -65,7 +65,25 @@ moment the editor stops answering, rather than continuing to send into a dead so
 `ue_pipeline` reports partial truth on purpose: a step that fails does not undo the steps that
 already ran, so the reply names which ones succeeded and which did not.
 
-## Verify
+## Overlap with the server that already ships inside the plugin
+
+The plugin installs its own MCP front-end (`.../IRSofkaStationCore/Content/Python/mcp_server.py`),
+and on this workstation that one is already registered in the engines under the name
+`irsofka-unreal-mcp`. Two servers forwarding to the same editor socket is a real condition, not a
+typo, so say what distinguishes them and what it costs:
+
+- the plugin's front-end is a thin, complete passthrough: it exposes every action the C++ accepts,
+  in the shape the C++ wants, including the bare class names that silently produce an immovable
+  actor. It is the right tool when you want exactly the plugin's surface.
+- this server is the station's product surface: it resolves class names or refuses, verifies a
+  write by reading it back, caps pipelines so one call cannot hold the GameThread indefinitely,
+  and reports UNAVAILABLE rather than a success the editor never saw. It is the right tool when an
+  unattended run is the caller.
+
+Both may be registered at once. What must not happen is an engine choosing between them by name
+alone, because their answers differ on the failure paths — which is the whole reason this one
+exists. Register the one that matches the caller, or name the difference in the prompt.
+
 
 ```bash
 python3 server.py --selftest     # 24 checks, no editor needed (a fake bridge on an ephemeral port)
