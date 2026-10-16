@@ -55,6 +55,15 @@ numbers. A SUCCESS that did not move anything is reported as `DEGRADED`, not as 
 endpoint and the fact that nothing was sent. A call the editor never saw is never reported as one
 that happened.
 
+Two words travel in every reply, and they answer to different owners: `status` is what the **engine**
+said, passed through untouched; `state` is this server's word for the same fact, mapped by one table
+(`SUCCESS` → `DONE`, `UNAVAILABLE` → `UNAVAILABLE`). `ok` is derived from that mapping and MCP
+`isError` is derived from `ok`, so the payload and the protocol flag cannot disagree. The first
+version computed `isError` as `not out.get("ok")` while the engine's own success reply contains no
+`ok` key — which meant every successful domain call reached a client labelled an error, and 24 green
+offline checks never noticed because none of them drove `tools/call` on a domain tool. The suite now
+does, at the JSON-RPC layer, in both directions.
+
 ## Thread and timing facts that shape the design
 
 The editor runs every handler on the GameThread through `FIRSofkaTaskRunner::ExecuteSync`. One
@@ -86,7 +95,7 @@ exists. Register the one that matches the caller, or name the difference in the 
 
 
 ```bash
-python3 server.py --selftest     # 24 checks, no editor needed (a fake bridge on an ephemeral port)
+python3 server.py --selftest     # 28 checks, no editor needed (a fake bridge on an ephemeral port)
 python3 server.py --status       # honest: ok=false and state=UNAVAILABLE when the editor is closed
 ```
 

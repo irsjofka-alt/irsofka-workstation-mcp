@@ -28,6 +28,7 @@ What this adds over talking to the socket directly — all three come from defec
 from __future__ import annotations
 
 import json
+import re
 import os
 import socket
 import sys
@@ -38,8 +39,8 @@ SERVER_NAME = "irsofka-workstation-mcp"
 SERVER_VERSION = "0.1.0"
 PROTOCOL = "2024-11-05"
 
-HOST = os.environ.get("IRSOVKA_STATION_HOST", "127.0.0.1")
-PORT = int(os.environ.get("IRSOVKA_STATION_PORT", "9877"))
+HOST = os.environ.get("IRSOFKA_STATION_HOST", "127.0.0.1")
+PORT = int(os.environ.get("IRSOFKA_STATION_PORT", "9877"))
 MAX_LINE = 4 * 1024 * 1024
 
 DOMAINS = ("world", "blueprint", "material", "media", "vision", "pipeline")
@@ -91,7 +92,7 @@ def send(domain: str, action: str, params: dict | None = None,
                 "error": f"{type(exc).__name__}: {exc}",
                 "meaning": "the editor's bridge is not listening; nothing was sent to the editor",
                 "next": "open the editor (the bridge starts with IRSofkaStationCore) or point "
-                        "IRSOVKA_STATION_PORT at the right instance"}
+                        "IRSOFKA_STATION_PORT at the right instance"}
     line = buf.split(b"\n", 1)[0] if buf else b""
     if not line.strip():
         return {"status": "NO_REPLY", "endpoint": endpoint(),
@@ -351,6 +352,31 @@ TOOL_IMPLS = {t["name"]: (tool_world if t["name"] == "ue_world" else
               for t in TOOLS}
 
 
+# --- satu definisi "berhasil" ------------------------------------------------
+# The engine answers `{"status": "SUCCESS", ...}` and has no `ok` key at all. The first version of
+# `handle()` computed `isError` from `not out.get("ok")`, so every successful call to the five domain
+# tools was delivered to the MCP client as an error — a server that reports success as failure is
+# worse than one that fails, because the caller learns to distrust the green path.
+#
+# Two words live here on purpose, and they are not two vocabularies: `status` is what the ENGINE said
+# and is passed through untouched, `state` is the STATION's word for the same fact, mapped by the
+# table the domain tools already use (SUCCESS -> DONE). `ok` and `isError` are both derived from that
+# one mapping, so the payload and the protocol flag can never disagree. A shape not in the table is
+# not a success.
+OK_STATUS = {"SUCCESS"}
+STATE_FROM_STATUS = {"SUCCESS": "DONE", "UNAVAILABLE": "UNAVAILABLE"}
+
+
+def normalise(out: dict) -> dict:
+    out = dict(out or {})
+    status = str(out.get("status") or "")
+    if "ok" not in out:
+        out["ok"] = status in OK_STATUS
+    if "state" not in out:
+        out["state"] = STATE_FROM_STATUS.get(status, status or "UNKNOWN")
+    return out
+
+
 def handle(msg: dict) -> dict | None:
     method = msg.get("method")
     mid = msg.get("id")
@@ -394,7 +420,7 @@ def handle(msg: dict) -> dict | None:
             return {"jsonrpc": "2.0", "id": mid,
                     "error": {"code": -32602, "message": f"unknown tool {name}"}}
         try:
-            out = impl(params.get("arguments") or {})
+            out = normalise(impl(params.get("arguments") or {}))
         except Exception as exc:  # a tool answers with a fact, never with our stack trace
             out = {"ok": False, "state": "SERVER_ERROR", "tool": name,
                    "error": f"{type(exc).__name__}: {exc}"[:400]}
@@ -413,7 +439,7 @@ def handle(msg: dict) -> dict | None:
 
 PROTOCOL_DOC = f"""Station bridge framing, as implemented by the editor-side plugin.
 
-  transport : TCP, {HOST}:{PORT} (env IRSOVKA_STATION_HOST / IRSOVKA_STATION_PORT)
+  transport : TCP, {HOST}:{PORT} (env IRSOFKA_STATION_HOST / IRSOFKA_STATION_PORT)
   framing   : one JSON object per line. The client's request must end in a newline; the server
               reads until its last received byte is '\\n', answers one JSON object, appends '\\n'.
               One connection per command: HandleClient reads one request, answers, and returns.
@@ -642,6 +668,23 @@ def selftest() -> int:
                "class_table" in body and str(fake_port) in body, body[:200])
         unk_tool = handle({"jsonrpc": "2.0", "id": 4, "method": "tools/call",
                            "params": {"name": "ue_telepathy"}})
+        # The five domain tools were never driven through tools/call, and that is how a mapping bug
+        # survived 24/24: `isError` came from `not out.get("ok")`, the engine answers
+        # {"status": "SUCCESS"} with no `ok` key, so every successful domain call reached the client
+        # labelled an error. Only a test that goes through the JSON layer can see that.
+        dom = handle({"jsonrpc": "2.0", "id": 42, "method": "tools/call",
+                      "params": {"name": "ue_world", "arguments": {"action": "get_all_actors"}}})
+        dres = dom.get("result") or {}
+        dbody = json.loads((dres.get("content") or [{}])[0].get("text") or "{}")
+        check("tools/call pada alat domain: balasan engine SUCCESS TIDAK dikirim sebagai isError, "
+              "dan payload memakai kata ok/state yang sama dengan flag itu",
+              dres.get("isError") is False and dbody.get("ok") is True
+              and dbody.get("status") == "SUCCESS" and dbody.get("state") == "DONE",
+              json.dumps({"isError": dres.get("isError"), "body": dbody})[:240])
+        deg = {"status": "FAILED", "error": "engine says no"}
+        ddeg = json.dumps(normalise(deg))
+        check("balasan FAILED memberi ok=False dan state=FAILED (satu kata, satu tempat)",
+              '"ok": false' in ddeg and '"state": "FAILED"' in ddeg, ddeg[:200])
         check("alat asing ditolak -32602", unk_tool.get("error", {}).get("code") == -32602,
               str(unk_tool))
         check("notifikasi tanpa id tidak menjawab apa pun",
@@ -662,12 +705,31 @@ def selftest() -> int:
         check("ue_status jujur soal editor yang tidak ada (ok=False, bukan COMPLETED)",
               st_closed.get("ok") is False and st_closed.get("state") == "UNAVAILABLE",
               str(st_closed)[:200])
+        un_call = handle({"jsonrpc": "2.0", "id": 43, "method": "tools/call",
+                          "params": {"name": "ue_world",
+                                      "arguments": {"action": "get_all_actors"}}})
+        unres = un_call.get("result") or {}
+        unbody = json.loads((unres.get("content") or [{}])[0].get("text") or "{}")
+        check("editor tertutup lewat kanal MCP: isError=True dan state=UNAVAILABLE — klaim README "
+              "terbukti di lapisan yang benar-benar dibaca klien, bukan hanya di helper",
+              unres.get("isError") is True and unbody.get("state") == "UNAVAILABLE",
+              json.dumps(unbody)[:200])
         globals()["PORT"] = fake_port
     finally:
         try:
             ls.close()
         except OSError:
             pass
+    # Jumlah yang ditulis README dibandingkan dengan jumlah yang benar-benar dijalankan. Kelas cacat
+    # yang sama (angka dokumen yang tertinggal) sudah dua kali ditangkap verifier di repo saudara, jadi
+    # yang ditahan di sini adalah bentuknya, bukan satu angka spesifik.
+    _rm_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "README.md")
+    _rm = open(_rm_path, encoding="utf-8", errors="replace").read() if os.path.isfile(_rm_path) else ""
+    _claimed = sorted({int(n) for n in re.findall(r"#\s*(\d+)\s+checks?", _rm)})
+    _total = len(checks) + 1
+    check(f"jumlah check yang DITULIS README sama dengan yang berjalan ({_claimed} vs {_total})",
+          _claimed == [_total], f"README menulis {_claimed or 'tidak ada'}, yang jalan {_total}")
+
     print("\n".join(lines))
     total, passed = len(checks), sum(checks)
     print(f"\n{SERVER_NAME} selftest: {passed}/{total} sesuai")
