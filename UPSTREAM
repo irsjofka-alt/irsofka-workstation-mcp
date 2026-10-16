@@ -37,4 +37,4 @@ plugin, because the plugin fix needs a module rebuild inside the operator's live
 Both are recorded upstream as roadmap item F11/STEP-0b (quest 301, status HUMAN, decision 55).
 
 Licence of this repository: Business Source License 1.1 (see LICENSE), Licensor PT IRSofka Data
-Teknologi, Change License MIT after four years per version.
+Teknologi, Change License the Apache License, Version 2.0 after four years per version.

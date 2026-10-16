@@ -8,8 +8,8 @@ without anyone typing into it.
 engine (MCP client) ── stdio JSON-RPC ──> server.py ── newline JSON ──> editor bridge 127.0.0.1:9877
 ```
 
-- **License**: Business Source License 1.1, Licensor PT IRSofka Data Teknologi, Change License MIT
-  after four years per version. `UPSTREAM` states what this is derived from — nothing third-party;
+- **License**: Business Source License 1.1, Licensor PT IRSofka Data Teknologi, Change License the Apache License, Version 2.0,
+  effective at each version's Change Date. `UPSTREAM` states what this is derived from — nothing third-party;
   it is a client of a protocol documented from the operator's own plugin source and confirmed by a
   live round trip.
 - **Requires**: Python 3.9+ (stdlib only) and the editor running with its bridge plugin loaded.
