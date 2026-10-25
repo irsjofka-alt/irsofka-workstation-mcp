@@ -1,0 +1,19 @@
+[project]
+name = "irsofka-workstation-mcp"
+version = "0.1.0"
+description = "IRSofka Workstation MCP — stdio MCP server for the editor-side station bridge, with class resolution and verified writes."
+requires-python = ">=3.9"
+# Empty on purpose, like the Comfy and Blender siblings: every dependency is one more licence to
+# audit at release time, and the bridge is a line protocol that stdlib sockets already speak.
+dependencies = []
+license = {text = "BUSL-1.1"}
+
+[project.scripts]
+irsofka-workstation-mcp = "server:main"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["server"]
